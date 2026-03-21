@@ -57,7 +57,7 @@ function createStreamResponse(input: { prompt: string; requestId: string }) {
 
       sendEvent({
         type: "system",
-        text: "Starting Codex artifact session.",
+        text: "Starting artifact session.",
       });
 
       try {

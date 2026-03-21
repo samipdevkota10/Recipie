@@ -78,7 +78,7 @@ export default function Home() {
               },
               {
                 icon: "⚡",
-                title: "Codex Fulfillment",
+                title: "Artifact Fulfillment",
                 description: "Turn extracted workflows into concrete output artifacts",
               },
             ].map((feature, idx) => (
@@ -169,7 +169,7 @@ export default function Home() {
             <div className="flex flex-wrap items-center justify-center gap-6 md:gap-8">
               {[
                 { name: "Google Gemini", emoji: "🤖" },
-                { name: "OpenAI Codex", emoji: "⚙️" },
+                { name: "OpenAI", emoji: "⚙️" },
                 { name: "Next.js", emoji: "▲" },
               ].map((tech, idx) => (
                 <div

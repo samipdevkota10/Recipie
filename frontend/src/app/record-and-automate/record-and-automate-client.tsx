@@ -69,6 +69,7 @@ export function VideoDescriberClient() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const discardRecordingRef = useRef(false);
+  const recentAgentActivities = getRecentAgentActivities(codexLiveOutput);
 
   useEffect(() => {
     setCanRecordVideo(
@@ -503,12 +504,12 @@ export function VideoDescriberClient() {
                 Record And Automate
               </p>
               <h1 className="text-4xl font-semibold tracking-tight text-white">
-                Codex-backed artifact generator
+                Artifact generator
               </h1>
               <p className="max-w-3xl text-sm leading-6 text-gray-400 md:text-base">
                 Upload an mp4 or webm, or record a fresh screen capture. The
                 page first extracts what happened in the recording, then sends
-                that description into a Codex session that returns a
+                that description into an execution session that returns a
                 downloadable artifact.
               </p>
             </div>
@@ -685,27 +686,22 @@ export function VideoDescriberClient() {
                     <p className="text-xs font-medium uppercase tracking-[0.24em] text-gray-400">
                       Agent actions
                     </p>
-                    <div className="mt-3 flex items-start gap-3">
-                      <div
-                        className={[
-                          "mt-0.5 h-2.5 w-2.5 rounded-full",
-                          runStage === "fulfilling"
-                            ? "animate-pulse bg-cyan-300"
-                            : "bg-gray-500",
-                        ].join(" ")}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm leading-6 text-gray-200">
-                          {getLatestAgentActivity(codexLiveOutput) ||
-                            getPendingCodexOutput(runStage)}
-                        </p>
-                        {codexLiveOutput ? (
-                          <p className="mt-1 text-xs text-gray-500">
-                            {getAgentActivityCount(codexLiveOutput)} updates
-                          </p>
-                        ) : null}
+                    {recentAgentActivities.length > 0 ? (
+                      <div className="mt-3 space-y-2 font-mono text-[12px] leading-5 text-gray-400/55">
+                        {recentAgentActivities.map((entry, index) => (
+                          <div
+                            key={`${index}-${entry.slice(0, 24)}`}
+                            className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2"
+                          >
+                            {entry}
+                          </div>
+                        ))}
                       </div>
-                    </div>
+                    ) : (
+                      <p className="mt-3 text-sm leading-6 text-gray-500">
+                        {getPendingCodexOutput(runStage)}
+                      </p>
+                    )}
                   </div>
 
                   {generatedArtifact ? (
@@ -958,20 +954,12 @@ function getPendingCodexOutput(runStage: RunStage): string {
   return "No agent activity yet.";
 }
 
-function getLatestAgentActivity(activityLog: string): string | null {
-  const entries = activityLog
-    .split("\n")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-  return entries.at(-1) ?? null;
-}
-
-function getAgentActivityCount(activityLog: string): number {
+function getRecentAgentActivities(activityLog: string, limit = 4): string[] {
   return activityLog
     .split("\n")
     .map((entry) => entry.trim())
-    .filter(Boolean).length;
+    .filter(Boolean)
+    .slice(-limit);
 }
 
 function getSupportedVideoMimeType(file: File): string | null {
