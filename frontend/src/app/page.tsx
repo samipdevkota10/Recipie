@@ -47,14 +47,16 @@ export default function Home() {
                     if (dataObj.type === "done" || dataObj.type === "error") {
                         setIsRunning(false);
                     }
-                } catch (e) {
+                } catch {
                     console.error("Failed to parse SSE line", line);
                 }
             }
         }
       }
-    } catch (error: any) {
-      setLogs((prev) => [...prev, { type: "error", text: error.message }]);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown client error";
+      setLogs((prev) => [...prev, { type: "error", text: message }]);
       setIsRunning(false);
     }
   };

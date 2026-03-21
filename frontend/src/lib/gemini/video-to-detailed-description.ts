@@ -1,5 +1,6 @@
 import {
   GoogleGenAI,
+  MediaResolution,
   createPartFromUri,
   createUserContent,
 } from '@google/genai';
@@ -78,7 +79,7 @@ export async function generateDetailedDescriptionFromVideo(
       model: input.model ?? DEFAULT_MODEL,
       config: {
         systemInstruction: VIDEO_TO_DETAILED_DESCRIPTION_PROMPT,
-        mediaResolution: 'MEDIA_RESOLUTION_HIGH',
+        mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
         temperature: 0.2,
       },
       contents: createUserContent([
