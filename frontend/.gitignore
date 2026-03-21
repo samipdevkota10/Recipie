@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local agent-browser runs / generated artifacts
+/convention_research/
+/hn.txt
+/results.csv
+/extracted_results.csv
+/raw_snapshot.txt
+/agent_page.png
+/scripts/dynamic_agent_*.sh
+/agent-browser.json

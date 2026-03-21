@@ -140,10 +140,9 @@ export default function Home() {
             }
         }
       }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown client error";
-      setLogs((prev) => [...prev, { type: "error", text: message }]);
+    } catch (error: unknown) {
+      const text = error instanceof Error ? error.message : String(error);
+      setLogs((prev) => [...prev, { type: "error", text }]);
       setIsRunning(false);
     }
   };
@@ -284,12 +283,11 @@ export default function Home() {
                     </div>
                   )}
               </div>
-
               {/* Overlays float independently over the screen */}
               {highlightText && (
                 <div className="absolute z-[60] p-3 md:p-4 bg-indigo-100/90 rounded-lg border border-indigo-400 font-medium text-indigo-900 shadow-xl inline-block transition-all duration-300 backdrop-blur-sm pointer-events-none text-sm md:text-base whitespace-nowrap"
                      style={{ top: `${cursorPos.y + 5}%`, left: `${cursorPos.x + 5}%`, transform: 'translate(-50%, -50%)' }}>
-                  "{highlightText}"
+                  &ldquo;{highlightText}&rdquo;
                 </div>
               )}
 
@@ -340,6 +338,7 @@ export default function Home() {
                   {logs.map((log, i) => {
                     const isError = log.type === 'error' || log.text.includes('[ERROR]');
                     const isDone = log.type === 'done' || log.text.includes('[DONE]');
+                    const isPlan = log.type === 'plan';
                     const isSystem = log.text.includes('[SYSTEM]');
                     
                     return (
@@ -350,6 +349,7 @@ export default function Home() {
                         <span className={`whitespace-pre-wrap flex-1 ${
                           isError ? 'text-rose-400 font-medium' :
                           isDone ? 'text-emerald-400 font-bold' :
+                          isPlan ? 'text-cyan-300/95 border-l-2 border-cyan-500/40 pl-3' :
                           isSystem ? 'text-indigo-400' :
                           'text-gray-300'
                         }`}>

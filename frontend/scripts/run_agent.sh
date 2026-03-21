@@ -1,4 +1,9 @@
 #!/bin/bash
+# Resolve agent-browser from this app's node_modules (no global install required)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FRONTEND_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+export PATH="$FRONTEND_ROOT/node_modules/.bin:$PATH"
+
 PROMPT="$1"
 
 echo "Agent starting for prompt: $PROMPT"

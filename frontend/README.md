@@ -34,3 +34,20 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Agent browser (`/api/run-agent`)
+
+The UI calls Gemini in **two phases** when generating bash for `agent-browser`: a **structured JSON plan** (URL strategy, steps outline, risks), then a **lower-temperature** script that follows that plan. If planning fails, the API falls back to single-shot generation.
+
+**Environment (optional):**
+
+| Variable | Purpose |
+| -------- | ------- |
+| `GEMINI_API_KEY` | Required (or `GOOGLE_GENERATIVE_AI_API_KEY` / `GOOGLE_API_KEY`). |
+| `AGENT_PLAN_MODEL` | Model for planning (default `gemini-2.5-flash`). |
+| `AGENT_SCRIPT_MODEL` | Model for bash generation (default `gemini-2.5-flash`). |
+| `AGENT_SKIP_PLAN` | Set to `true` or `1` to skip the planner and use legacy one-shot prompts. |
+| `AGENT_KEEP_NETWORKIDLE` | Set to `true` or `1` to **stop** rewriting `wait --load networkidle` → fixed ms (default: scripts are sanitized to avoid SPA hangs). |
+| `AGENT_BROWSER_HEADED` | `true` by default; set `0` / `false` for headless. |
+
+Manual test ideas: [docs/AGENT_BROWSER_TEST_PLAN.md](./docs/AGENT_BROWSER_TEST_PLAN.md).
