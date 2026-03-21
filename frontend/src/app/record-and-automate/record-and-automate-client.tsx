@@ -703,10 +703,6 @@ export function VideoDescriberClient() {
                     <p className="text-xs font-medium uppercase tracking-[0.24em] text-gray-400">
                       Agent actions
                     </p>
-                    <div className="mt-3 flex items-center gap-3 text-sm text-gray-400">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-500/20 border-t-cyan-300" />
-                      <span>{getPendingCodexOutput(runStage)}</span>
-                    </div>
                     {recentAgentActivities.length > 0 ? (
                       <div className="mt-3 space-y-2 font-mono text-[12px] leading-5 text-gray-400/55">
                         {recentAgentActivities.map((entry, index) => (
@@ -718,7 +714,11 @@ export function VideoDescriberClient() {
                           </div>
                         ))}
                       </div>
-                    ) : null}
+                    ) : (
+                      <p className="mt-3 text-sm leading-6 text-gray-500">
+                        {getPendingCodexOutput(runStage)}
+                      </p>
+                    )}
                   </div>
                 </>
               ) : fulfillmentSummary || generatedArtifact || codexLiveOutput ? (
