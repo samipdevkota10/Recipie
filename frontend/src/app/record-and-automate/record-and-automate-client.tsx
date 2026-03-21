@@ -671,6 +671,56 @@ export function VideoDescriberClient() {
                     <div className="h-3 w-8/12 animate-pulse rounded-full bg-cyan-300/10" />
                   </div>
                 </div>
+              ) : runStage === "fulfilling" ? (
+                <>
+                  <div className="rounded-2xl border border-indigo-400/20 bg-indigo-400/5 p-5">
+                    <div className="flex items-center gap-4">
+                      <div className="h-10 w-10 animate-spin rounded-full border-2 border-indigo-300/20 border-t-indigo-300" />
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-white">
+                          Creating artifact
+                        </p>
+                        <p className="text-sm text-gray-400">
+                          The workflow has been extracted and the output is being generated now.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/5">
+                      <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-300/60" />
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-gray-800 bg-gray-950/60 p-4">
+                    <p className="text-xs font-medium uppercase tracking-[0.24em] text-gray-400">
+                      Fulfillment summary
+                    </p>
+                    <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-gray-100">
+                      {fulfillmentSummary || getPendingSummary(runStage)}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-gray-800 bg-black/30 p-4">
+                    <p className="text-xs font-medium uppercase tracking-[0.24em] text-gray-400">
+                      Agent actions
+                    </p>
+                    <div className="mt-3 flex items-center gap-3 text-sm text-gray-400">
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-500/20 border-t-cyan-300" />
+                      <span>{getPendingCodexOutput(runStage)}</span>
+                    </div>
+                    {recentAgentActivities.length > 0 ? (
+                      <div className="mt-3 space-y-2 font-mono text-[12px] leading-5 text-gray-400/55">
+                        {recentAgentActivities.map((entry, index) => (
+                          <div
+                            key={`${index}-${entry.slice(0, 24)}`}
+                            className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2"
+                          >
+                            {entry}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </>
               ) : fulfillmentSummary || generatedArtifact || codexLiveOutput ? (
                 <>
                   <div className="rounded-2xl border border-gray-800 bg-gray-950/60 p-4">
