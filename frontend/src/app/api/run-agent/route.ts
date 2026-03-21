@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     if (!apiKey) return NextResponse.json({ error: 'GEMINI_API_KEY is not defined' }, { status: 500 });
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); // Using 2.0-flash for reliable vision
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // Restoring the working model from original code
 
     const encoder = new TextEncoder();
     
@@ -43,13 +43,16 @@ Translate the user's request into a bash script using ONLY these commands:
 - \`agent-browser wait <ms>\`
 - \`agent-browser find text "<text>" click\`
 - \`agent-browser scroll <pixels>\`
+- \`agent-browser type "<text>" at "<placeholder/label>"\`
 - \`agent-browser snapshot -i > raw_snapshot.txt\`
 - \`agent-browser screenshot agent_page.png\`
 
-CRITICAL:
-1. Mimic human browsing with wait (2000ms+) and scroll (500px) commands.
-2. ALWAYS take both a snapshot AND a screenshot at the very end of your script.
-3. If this is a re-attempt, be more specific with your navigation.
+STRATEGY:
+1. Don't just open the homepage! If the user wants specific data (e.g. "SF Events on Eventbrite"), you should try to build the search URL directly (like https://www.eventbrite.com/d/ca--san-francisco/all-events/) or use the search immediately.
+2. If there are no direct URLs, SEARCH for the category and city using \`agent-browser type "<city/category>" at "<placeholder/label>"\` then click the Search button.
+3. Mimic human browsing: wait (2s+) and scroll (500px) multiple times to ensure the results list is actually loaded in the DOM.
+4. ALWAYS finish with a snapshot AND a screenshot.
+5. IMPORTANT: Add \`echo "STEP: <description>"\` before each major action so the UI can show a status message to the user.
 
 Output EXACTLY a bash script starting with #!/bin/bash. No markdown block.
 
@@ -89,11 +92,13 @@ Users Request: "${currentPrompt}"`;
                     { inlineData: { data: screenshotBase64, mimeType: "image/png" } },
                     { text: `Analyze this browser screenshot and text snapshot.
 User Goal: "${prompt}"
-Current Snapshot Content Snippet: ${snapshotText.substring(0, 5000)}
 
-Is the agent currently on a page that directly fulfills the user's request (e.g., a list of tech events) or just a generic landing page?
-Output exactly "CORRECT" if we are on the right track.
-Otherwise, output "RETRY: <reason>" describing why this is the wrong page and what kind of link or search term to use instead.` }
+Check two things:
+1. Are we actually on the RESULTS PAGE for the correct city (e.g., San Francisco)?
+2. Is the "LOCATION" or "WHERE" box showing the requested city, or is it showing a default like "Houston"?
+
+Output exactly "CORRECT" only if we are on the results page for the user's specific location.
+If it shows a homepage, a generic page, or a different city (like Houston), output "RETRY: <reason>" (e.g. "RETRY: Currently stuck on Houston homepage, need to navigate to SF events").` }
                 ];
 
                 const verificationResult = await model.generateContent(verifyPrompt);
@@ -113,17 +118,19 @@ Otherwise, output "RETRY: <reason>" describing why this is the wrong page and wh
             }
 
             // Extraction Phase
-            sendData('system', 'Using Gemini AI to parse the final snapshot/screenshot into a beautiful CSV...');
+            sendData('system', 'Using Gemini AI to parse the final snapshot/screenshot into a dynamic CSV...');
             const csvPrompt = [
                 { inlineData: { data: screenshotBase64, mimeType: "image/png" } },
                 { text: `Parse this page into a highly detailed, clean CSV format.
-Extract: Event Name, Full Address/Location, Date & Time, Ticket Link, Description.
-Targeting: ${prompt}
+User Goal: "${prompt}"
+
+1. Determine the 5-7 most relevant columns for this research goal (e.g. if events: Name, Date, Location; if products: Name, Price, Rating).
+2. Extract the data accurately from the screenshot and snapshot text.
 
 Snapshot Text:
 ${snapshotText.substring(0, 10000)}
 
-Output ONLY the raw CSV data. No markdown headers.` }
+Output ONLY the raw CSV data (headers + rows). No markdown formatting.` }
             ];
 
             const csvResult = await model.generateContent(csvPrompt);
