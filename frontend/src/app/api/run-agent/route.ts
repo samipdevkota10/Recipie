@@ -177,6 +177,13 @@ export async function POST(req: Request) {
             mode: 0o755,
           });
 
+          const screenshotPath = path.join(process.cwd(), "agent_page.png");
+          const snapshotPath = path.join(process.cwd(), "raw_snapshot.txt");
+
+          for (const stale of [screenshotPath, snapshotPath]) {
+            try { await fs.unlink(stale); } catch { /* may not exist */ }
+          }
+
           sendData("system", `Executing script:\n${scriptContent}`);
           await executeScript(dynamicScriptPath);
           try {
@@ -184,9 +191,6 @@ export async function POST(req: Request) {
           } catch {
             /* ignore */
           }
-
-          const screenshotPath = path.join(process.cwd(), "agent_page.png");
-          const snapshotPath = path.join(process.cwd(), "raw_snapshot.txt");
 
           let screenshotBase64 = "";
           let snapshotText = "";
@@ -289,21 +293,34 @@ Otherwise output "RETRY: <reason>" with a concrete fix (e.g. use direct URL, dif
             );
           }
 
+          if (!hasUsableScreenshot && !snapshotText.trim()) {
+            sendData(
+              "error",
+              "No snapshot or screenshot was captured by the script — " +
+                "cannot extract data. The script may have failed or exited " +
+                "before reaching the snapshot commands.",
+            );
+            sendData("done", "Process complete with errors.");
+            return;
+          }
+
           sendData(
             "system",
-            "Using Gemini to build CSV from available snapshot/screenshot...",
+            `Using Gemini to build CSV from available data ` +
+              `(snapshot: ${snapshotText.length} chars, screenshot: ${hasUsableScreenshot ? "yes" : "no"})...`,
           );
 
           const csvBody = `Parse into a useful CSV for the user's goal.
 Determine the 5-7 most relevant columns for this research goal (e.g. if events: Name, Date, Location; if products: Name, Price, Rating).
+You MUST output at least headers AND data rows. If you see data in the snapshot, extract ALL visible items.
 
 User request:
 ${goalDescription}
 
-Snapshot text (may be partial or empty):
+Snapshot text:
 ${snapshotText.substring(0, 12000)}
 
-Output ONLY raw CSV data (headers + rows). No markdown fences.`;
+Output ONLY raw CSV data (headers + rows). No markdown fences. Do not output headers without rows.`;
 
           const csvPrompt = hasUsableScreenshot
             ? [
@@ -332,13 +349,24 @@ Output ONLY raw CSV data (headers + rows). No markdown fences.`;
           csvContent = csvContent
             .replace(/^```csv\n/i, "")
             .replace(/^```\n/i, "")
-            .replace(/```$/i, "");
+            .replace(/```$/i, "")
+            .trim();
+
+          const csvLines = csvContent.split("\n").filter((l) => l.trim());
+          if (csvLines.length < 2) {
+            sendData(
+              "error",
+              `CSV extraction produced only ${csvLines.length} line(s) — ` +
+                "the model may not have found usable data in the snapshot. " +
+                "Try re-running or ensuring the page fully loaded before capture.",
+            );
+          }
 
           const csvPath = path.join(process.cwd(), "extracted_results.csv");
           await fs.writeFile(csvPath, csvContent);
           sendData(
             "system",
-            "Successfully saved CSV to extracted_results.csv!",
+            `Saved ${csvLines.length} CSV lines to extracted_results.csv.`,
           );
 
           exec(`open "${csvPath}"`);

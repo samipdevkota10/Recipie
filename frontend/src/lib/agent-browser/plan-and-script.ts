@@ -92,7 +92,8 @@ agent-browser open "https://www.amazon.com/s?k=energy+drinks"
 agent-browser wait 3500
 agent-browser scroll down 700
 agent-browser wait 1500
-agent-browser snapshot -i > ./amazon_snapshot.txt
+agent-browser snapshot -i > raw_snapshot.txt
+agent-browser screenshot agent_page.png
 agent-browser wait 4000
 agent-browser close
 
@@ -103,7 +104,8 @@ agent-browser open "https://www.priceline.com/"
 agent-browser wait 3500
 agent-browser find role tab click --name "Flights"
 agent-browser wait 2500
-agent-browser snapshot -i > ./priceline_tab.txt
+agent-browser snapshot -i > raw_snapshot.txt
+agent-browser screenshot agent_page.png
 agent-browser wait 4000
 agent-browser close
 `.trim();
@@ -124,7 +126,7 @@ You write ONLY a bash script for the \`agent-browser\` CLI. Rules:
 10. For CSV: snapshot -i > file.txt then grep/sed/awk/echo; comment that rows are approximate.
 11. Before close: wait at least 3000ms.
 12. **Headless / in-app preview:** No \`agent-browser --headed\`; use plain \`agent-browser\`.
-13. **Web app host (optional):** Before \`close\`, \`agent-browser screenshot agent_page.png\` and \`agent-browser snapshot -i > raw_snapshot.txt\` in the dev-server cwd when possible.
+13. **REQUIRED — data capture:** Before \`close\`, you MUST run: \`agent-browser screenshot agent_page.png\` AND \`agent-browser snapshot -i > raw_snapshot.txt\`. These files are consumed by a downstream verification + CSV extraction step. Without them the pipeline fails.
 14. No markdown fences. No prose outside the script.
 `.trim();
 
@@ -307,7 +309,32 @@ export function sanitizeAgentBrowserScript(script: string): string {
   if (!s.startsWith("#!/")) {
     s = `#!/bin/bash\n${s}`;
   }
-  return s;
+  return ensureArtifactCommands(s);
+}
+
+/**
+ * Guarantee the script captures agent_page.png and raw_snapshot.txt
+ * before the final `agent-browser close`. Without these files, the
+ * post-execution verification and CSV extraction have nothing to work with.
+ */
+function ensureArtifactCommands(script: string): string {
+  const hasScreenshot = /agent-browser\s+screenshot\s+agent_page\.png/i.test(script);
+  const hasSnapshot = /agent-browser\s+snapshot\s+-i\s*>\s*\.?\/?(raw_snapshot\.txt)/i.test(script);
+
+  if (hasScreenshot && hasSnapshot) return script;
+
+  const inject: string[] = [];
+  if (!hasSnapshot) inject.push('agent-browser snapshot -i > raw_snapshot.txt');
+  if (!hasScreenshot) inject.push('agent-browser screenshot agent_page.png');
+
+  const closeIdx = script.lastIndexOf('agent-browser close');
+  if (closeIdx !== -1) {
+    const before = script.slice(0, closeIdx);
+    const after = script.slice(closeIdx);
+    return `${before}agent-browser wait 1500\n${inject.join('\n')}\n${after}`;
+  }
+
+  return `${script}\nagent-browser wait 1500\n${inject.join('\n')}\n`;
 }
 
 /** One-shot script (legacy / fallback if planning fails). */

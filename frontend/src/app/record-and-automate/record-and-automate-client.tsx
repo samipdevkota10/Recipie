@@ -456,8 +456,6 @@ export function VideoDescriberClient() {
         downloadRecordedVideo(recordedFile);
         setSelectedVideoFile(recordedFile);
         setClientError(null);
-
-        void analyzeAndRun(recordedFile, recordedMimeType);
       };
 
       recorder.start();
