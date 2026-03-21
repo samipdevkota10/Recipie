@@ -46,7 +46,7 @@ export default function Home() {
               <div className="inline-block">
                 <div className="px-4 py-1.5 rounded-full border border-indigo-500/40 bg-indigo-500/10 backdrop-blur-sm">
                   <p className="text-sm font-semibold text-indigo-300 tracking-wide">
-                    AI-Powered Browser Automation
+                    AI-Powered Task Automation
                   </p>
                 </div>
               </div>
@@ -78,8 +78,8 @@ export default function Home() {
               },
               {
                 icon: "⚡",
-                title: "Headless Execution",
-                description: "Replay workflows automatically, without user interaction",
+                title: "Codex Fulfillment",
+                description: "Turn extracted workflows into concrete output artifacts",
               },
             ].map((feature, idx) => (
               <div
@@ -169,7 +169,7 @@ export default function Home() {
             <div className="flex flex-wrap items-center justify-center gap-6 md:gap-8">
               {[
                 { name: "Google Gemini", emoji: "🤖" },
-                { name: "Agent Browser", emoji: "⚙️" },
+                { name: "OpenAI Codex", emoji: "⚙️" },
                 { name: "Next.js", emoji: "▲" },
               ].map((tech, idx) => (
                 <div

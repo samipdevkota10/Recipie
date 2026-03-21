@@ -1,35 +1,48 @@
 import {
-  runCodexRequestTaskSession,
   type CodexSessionEvent,
-} from "@/lib/codex/run-request-task-session";
+  runCodexVideoTaskSession,
+} from "@/lib/codex/run-video-task-session";
 
 export const maxDuration = 300;
 export const runtime = "nodejs";
 
-interface AgentRequestPayload {
-  prompt?: unknown;
+interface CodexRequestPayload {
+  userRequest?: unknown;
+  videoTaskDescription?: unknown;
 }
 
 export async function POST(request: Request) {
   const requestId = createRequestId();
 
   try {
-    const body = (await request.json()) as AgentRequestPayload;
-    const prompt = normalizeRequiredString(body.prompt, "prompt");
+    const body = (await request.json()) as CodexRequestPayload;
+    const userRequest = normalizeRequiredString(body.userRequest, "userRequest");
+    const videoTaskDescription = normalizeRequiredString(
+      body.videoTaskDescription,
+      "videoTaskDescription",
+    );
 
     if (request.headers.get("accept")?.includes("text/event-stream")) {
-      return createStreamResponse({ prompt, requestId });
+      return createStreamResponse({
+        requestId,
+        userRequest,
+        videoTaskDescription,
+      });
     }
 
-    const result = await runCodexRequestTaskSession({
-      userRequest: prompt,
+    const result = await runCodexVideoTaskSession({
+      userRequest,
+      videoTaskDescription,
     });
 
-    return Response.json(buildSuccessPayload(requestId, result), {
-      headers: {
-        "x-run-agent-request-id": requestId,
+    return Response.json(
+      buildSuccessPayload(requestId, result),
+      {
+        headers: {
+          "x-video-describer-codex-request-id": requestId,
+        },
       },
-    });
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown server error.";
@@ -39,14 +52,18 @@ export async function POST(request: Request) {
       {
         status: isBadRequestError(message) ? 400 : 500,
         headers: {
-          "x-run-agent-request-id": requestId,
+          "x-video-describer-codex-request-id": requestId,
         },
       },
     );
   }
 }
 
-function createStreamResponse(input: { prompt: string; requestId: string }) {
+function createStreamResponse(input: {
+  requestId: string;
+  userRequest: string;
+  videoTaskDescription: string;
+}) {
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -56,15 +73,19 @@ function createStreamResponse(input: { prompt: string; requestId: string }) {
       };
 
       sendEvent({
-        type: "system",
-        text: "Starting Codex artifact session.",
+        type: "status",
+        message: "Starting Codex fulfillment session.",
       });
 
       try {
-        const result = await runCodexRequestTaskSession({
-          userRequest: input.prompt,
+        const result = await runCodexVideoTaskSession({
+          userRequest: input.userRequest,
+          videoTaskDescription: input.videoTaskDescription,
           onEvent(event: CodexSessionEvent) {
-            sendEvent(mapCodexEventToStream(event));
+            sendEvent({
+              type: event.type,
+              message: event.message,
+            });
           },
         });
 
@@ -72,14 +93,11 @@ function createStreamResponse(input: { prompt: string; requestId: string }) {
           type: "final",
           payload: buildSuccessPayload(input.requestId, result),
         });
-        sendEvent({
-          type: "done",
-          text: `Artifact ready: ${result.artifact.filename}`,
-        });
       } catch (error) {
         sendEvent({
           type: "error",
-          text: error instanceof Error ? error.message : "Unknown server error.",
+          message:
+            error instanceof Error ? error.message : "Unknown server error.",
         });
       } finally {
         controller.close();
@@ -92,14 +110,14 @@ function createStreamResponse(input: { prompt: string; requestId: string }) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
-      "x-run-agent-request-id": input.requestId,
+      "x-video-describer-codex-request-id": input.requestId,
     },
   });
 }
 
 function buildSuccessPayload(
   requestId: string,
-  result: Awaited<ReturnType<typeof runCodexRequestTaskSession>>,
+  result: Awaited<ReturnType<typeof runCodexVideoTaskSession>>,
 ) {
   return {
     requestId,
@@ -113,30 +131,6 @@ function buildSuccessPayload(
       sizeBytes: result.artifact.bytes.byteLength,
       contentBase64: Buffer.from(result.artifact.bytes).toString("base64"),
     },
-  };
-}
-
-function mapCodexEventToStream(event: CodexSessionEvent): {
-  type: string;
-  text: string;
-} {
-  if (event.type === "warning") {
-    return {
-      type: "stderr",
-      text: event.message,
-    };
-  }
-
-  if (event.type === "status") {
-    return {
-      type: "system",
-      text: event.message,
-    };
-  }
-
-  return {
-    type: "stdout",
-    text: event.message,
   };
 }
 
