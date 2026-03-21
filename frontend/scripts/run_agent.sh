@@ -11,7 +11,7 @@ if [[ "$PROMPT" == *"SF"* ]] || [[ "$PROMPT" == *"events"* ]]; then
     # Use the hardcoded script for the demo if SF or events is mentioned
     echo "[SYSTEM] Running specialized script for events tracking"
     agent-browser close
-    agent-browser --headed open https://cerebralvalley.ai/events
+    agent-browser open https://cerebralvalley.ai/events
     agent-browser wait 4000
     agent-browser find text "SF & Bay Area" click
     agent-browser wait 2000
@@ -27,7 +27,7 @@ if [[ "$PROMPT" == *"SF"* ]] || [[ "$PROMPT" == *"events"* ]]; then
 else
     # Simple fallback script opening google
     echo "[SYSTEM] Initiating custom browsing session..."
-    agent-browser --headed open "https://google.com/search?q=$(echo $PROMPT | tr ' ' '+')"
+    agent-browser open "https://google.com/search?q=$(echo $PROMPT | tr ' ' '+')"
     agent-browser wait 3000
     echo "[SYSTEM] Searching for your prompt!"
     agent-browser snapshot -i > custom_search.txt

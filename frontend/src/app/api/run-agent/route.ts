@@ -8,13 +8,22 @@ import {
   planAgentTask,
   generateScriptFromPlan,
   generateScriptSingleShot,
+  generateScriptFromVideoActions,
 } from "@/lib/agent-browser/plan-and-script";
+import type { VideoAnalysisResult } from "@/lib/types/video-analysis";
 
 export async function POST(req: Request) {
   try {
-    const { prompt } = await req.json();
-    if (!prompt) {
-      return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+    const body = await req.json();
+    const prompt: string | undefined = body.prompt;
+    const videoJson: VideoAnalysisResult | undefined = body.videoJson;
+    const instructions: string | undefined = body.instructions;
+
+    if (!prompt && !videoJson) {
+      return NextResponse.json(
+        { error: "Either prompt or videoJson is required" },
+        { status: 400 },
+      );
     }
 
     const apiKey =
@@ -27,7 +36,7 @@ export async function POST(req: Request) {
           error:
             "Set GEMINI_API_KEY (or GOOGLE_GENERATIVE_AI_API_KEY) in frontend/.env.local, then restart the dev server.",
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -36,6 +45,11 @@ export async function POST(req: Request) {
     const visionModelName =
       process.env.AGENT_VISION_MODEL?.trim() || "gemini-2.5-flash";
     const visionModel = genAI.getGenerativeModel({ model: visionModelName });
+
+    const goalDescription =
+      videoJson
+        ? `${videoJson.task_title}: ${videoJson.user_intent}`
+        : prompt!;
 
     const encoder = new TextEncoder();
 
@@ -73,7 +87,28 @@ export async function POST(req: Request) {
           });
         };
 
-        async function generateAgentScript(currentPrompt: string): Promise<string> {
+        // --- Script generation: video-based or prompt-based ---
+
+        async function generateFromVideo(): Promise<string> {
+          const { scriptModel } = createAgentModels(geminiApiKey);
+          sendData(
+            "system",
+            `Generating script from ${videoJson!.actions.length} video-observed actions...`,
+          );
+          sendData(
+            "plan",
+            `[VIDEO ACTIONS]\n${JSON.stringify(videoJson, null, 2)}`,
+          );
+          return generateScriptFromVideoActions(
+            scriptModel,
+            videoJson!,
+            instructions || prompt || "",
+          );
+        }
+
+        async function generateFromPrompt(
+          currentPrompt: string,
+        ): Promise<string> {
           const { planModel, scriptModel } = createAgentModels(geminiApiKey);
           const skipPlan =
             process.env.AGENT_SKIP_PLAN === "1" ||
@@ -82,7 +117,7 @@ export async function POST(req: Request) {
           if (skipPlan) {
             sendData(
               "system",
-              "AGENT_SKIP_PLAN is set — generating script in one shot..."
+              "AGENT_SKIP_PLAN is set — generating script in one shot...",
             );
             return generateScriptSingleShot(scriptModel, currentPrompt);
           }
@@ -95,14 +130,14 @@ export async function POST(req: Request) {
             return await generateScriptFromPlan(
               scriptModel,
               currentPrompt,
-              plan
+              plan,
             );
           } catch (planErr: unknown) {
             const msg =
               planErr instanceof Error ? planErr.message : String(planErr);
             sendData(
               "system",
-              `Planning failed (${msg}). Falling back to single-shot script generation.`
+              `Planning failed (${msg}). Falling back to single-shot script generation.`,
             );
             return generateScriptSingleShot(scriptModel, currentPrompt);
           }
@@ -110,16 +145,21 @@ export async function POST(req: Request) {
 
         const runAgentLoop = async (
           currentPrompt: string,
-          attempts: number = 0
+          attempts: number = 0,
         ) => {
           sendData(
             "system",
             attempts === 0
-              ? `Generating navigation script for: "${currentPrompt}"...`
-              : `Re-navigating based on AI feedback (Attempt ${attempts + 1})...`
+              ? videoJson
+                ? `Translating video actions into navigation script...`
+                : `Generating navigation script for: "${currentPrompt}"...`
+              : `Re-navigating based on AI feedback (Attempt ${attempts + 1})...`,
           );
 
-          const scriptContent = await generateAgentScript(currentPrompt);
+          const scriptContent =
+            attempts === 0 && videoJson
+              ? await generateFromVideo()
+              : await generateFromPrompt(currentPrompt);
 
           if (!scriptContent.trim()) {
             sendData("error", "Model returned an empty script.");
@@ -131,9 +171,11 @@ export async function POST(req: Request) {
           await fs.mkdir(scriptDir, { recursive: true });
           const dynamicScriptPath = path.join(
             scriptDir,
-            `dynamic_agent_${Date.now()}.sh`
+            `dynamic_agent_${Date.now()}.sh`,
           );
-          await fs.writeFile(dynamicScriptPath, scriptContent, { mode: 0o755 });
+          await fs.writeFile(dynamicScriptPath, scriptContent, {
+            mode: 0o755,
+          });
 
           sendData("system", `Executing script:\n${scriptContent}`);
           await executeScript(dynamicScriptPath);
@@ -167,9 +209,8 @@ export async function POST(req: Request) {
           if (!hasUsableScreenshot || !snapshotText.trim()) {
             sendData(
               "stderr",
-              "Note: Missing agent_page.png and/or raw_snapshot.txt in the app cwd. " +
-                "Verification/CSV will use text-only mode. " +
-                "Tip: end generated scripts with: agent-browser screenshot agent_page.png && agent-browser snapshot -i > raw_snapshot.txt"
+              "Note: Missing agent_page.png and/or raw_snapshot.txt. " +
+                "Verification/CSV will use text-only mode.",
             );
           }
 
@@ -178,10 +219,10 @@ export async function POST(req: Request) {
               "system",
               hasUsableScreenshot
                 ? "AI is verifying the current page (screenshot + snapshot text)..."
-                : "AI is verifying using snapshot text only (no screenshot)..."
+                : "AI is verifying using snapshot text only (no screenshot)...",
             );
 
-            const verifyText = `User Goal: "${prompt}"
+            const verifyText = `User Goal: "${goalDescription}"
 
 Current snapshot text (may be empty if the script did not write raw_snapshot.txt):
 ${snapshotText.substring(0, 8000)}
@@ -217,14 +258,14 @@ Otherwise output "RETRY: <reason>" with a concrete fix (e.g. use direct URL, dif
                 verErr instanceof Error ? verErr.message : String(verErr);
               sendData(
                 "stderr",
-                `Verification step skipped after API error: ${vm}`
+                `Verification step skipped after API error: ${vm}`,
               );
             }
 
             if (verificationText.startsWith("RETRY") && attempts === 0) {
               sendData(
                 "system",
-                `Verification failed: ${verificationText}. Retrying...`
+                `Verification failed: ${verificationText}. Retrying...`,
               );
               try {
                 await fs.unlink(screenshotPath);
@@ -232,32 +273,32 @@ Otherwise output "RETRY: <reason>" with a concrete fix (e.g. use direct URL, dif
                 /* ignore */
               }
               await runAgentLoop(
-                `${prompt}. Context from previous failure: ${verificationText}`,
-                attempts + 1
+                `${goalDescription}. Context from previous failure: ${verificationText}`,
+                attempts + 1,
               );
               return;
             }
             sendData(
               "system",
-              "Verification finished. Proceeding to data extraction."
+              "Verification finished. Proceeding to data extraction.",
             );
           } else {
             sendData(
               "system",
-              "Maximum attempts reached or verification passed. Moving to extraction."
+              "Maximum attempts reached or verification passed. Moving to extraction.",
             );
           }
 
           sendData(
             "system",
-            "Using Gemini to build CSV from available snapshot/screenshot..."
+            "Using Gemini to build CSV from available snapshot/screenshot...",
           );
 
           const csvBody = `Parse into a useful CSV for the user's goal.
 Determine the 5-7 most relevant columns for this research goal (e.g. if events: Name, Date, Location; if products: Name, Price, Rating).
 
 User request:
-${prompt}
+${goalDescription}
 
 Snapshot text (may be partial or empty):
 ${snapshotText.substring(0, 12000)}
@@ -281,7 +322,8 @@ Output ONLY raw CSV data (headers + rows). No markdown fences.`;
             const csvResult = await visionModel.generateContent(csvPrompt);
             csvContent = csvResult.response.text();
           } catch (csvErr: unknown) {
-            const cm = csvErr instanceof Error ? csvErr.message : String(csvErr);
+            const cm =
+              csvErr instanceof Error ? csvErr.message : String(csvErr);
             sendData("error", `CSV extraction failed: ${cm}`);
             sendData("done", "Process complete with errors.");
             return;
@@ -296,7 +338,7 @@ Output ONLY raw CSV data (headers + rows). No markdown fences.`;
           await fs.writeFile(csvPath, csvContent);
           sendData(
             "system",
-            "Successfully saved CSV to extracted_results.csv!"
+            "Successfully saved CSV to extracted_results.csv!",
           );
 
           exec(`open "${csvPath}"`);
@@ -304,7 +346,7 @@ Output ONLY raw CSV data (headers + rows). No markdown fences.`;
         };
 
         try {
-          await runAgentLoop(prompt);
+          await runAgentLoop(prompt || goalDescription);
         } catch (error: unknown) {
           const message =
             error instanceof Error ? error.message : String(error);

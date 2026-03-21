@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import type { VideoAnalysisResult } from "@/lib/types/video-analysis";
 
 interface DebugEntry {
   id: string;
@@ -18,10 +20,12 @@ const RECORDING_MIME_CANDIDATES = [
 ] as const;
 
 export function VideoDescriberClient() {
+  const router = useRouter();
   const [instructions, setInstructions] = useState("");
   const [selectedVideo, setSelectedVideo] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [completion, setCompletion] = useState("");
+  const [parsedVideoJson, setParsedVideoJson] = useState<VideoAnalysisResult | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
   const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -34,6 +38,40 @@ export function VideoDescriberClient() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const discardRecordingRef = useRef(false);
+
+  // Try to parse the streamed completion as VideoAnalysisResult JSON whenever it changes
+  useEffect(() => {
+    if (!completion || isLoading) {
+      setParsedVideoJson(null);
+      return;
+    }
+    try {
+      let jsonText = completion.trim();
+      if (jsonText.startsWith("```")) {
+        jsonText = jsonText
+          .replace(/^```json?\n?/i, "")
+          .replace(/\n?```\s*$/i, "")
+          .trim();
+      }
+      const parsed = JSON.parse(jsonText) as VideoAnalysisResult;
+      if (parsed.actions?.length) {
+        setParsedVideoJson(parsed);
+      } else {
+        setParsedVideoJson(null);
+      }
+    } catch {
+      setParsedVideoJson(null);
+    }
+  }, [completion, isLoading]);
+
+  function handleRunInAgentBrowser() {
+    if (!parsedVideoJson) return;
+    sessionStorage.setItem(
+      "pendingVideoJson",
+      JSON.stringify(parsedVideoJson),
+    );
+    router.push("/");
+  }
 
   useEffect(() => {
     setCanRecordVideo(
@@ -518,15 +556,46 @@ export function VideoDescriberClient() {
               </div>
             </div>
 
-            <div className="p-5">
+            <div className="p-5 space-y-4">
               {completion ? (
-                <div className="whitespace-pre-wrap rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-4 text-sm leading-6 text-gray-100">
+                <div className="whitespace-pre-wrap rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-4 text-sm leading-6 text-gray-100 max-h-[400px] overflow-y-auto">
                   {completion}
                 </div>
               ) : (
                 <div className="rounded-2xl border border-dashed border-gray-800 bg-gray-950/60 px-6 py-12 text-center text-sm text-gray-500">
                   Upload a video and submit instructions to stream the generated
                   description here.
+                </div>
+              )}
+
+              {parsedVideoJson && !isLoading && (
+                <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <p className="text-sm font-medium text-indigo-200">
+                      {parsedVideoJson.actions.length} actions detected
+                    </p>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    {parsedVideoJson.task_title} &mdash; {parsedVideoJson.user_intent}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {parsedVideoJson.actions.map((a) => (
+                      <span
+                        key={a.seq}
+                        className="inline-flex items-center px-2 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-[11px] text-gray-300 font-mono"
+                      >
+                        {a.seq}. {a.type}
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRunInAgentBrowser}
+                    className="w-full rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-500 shadow-[0_0_20px_rgba(79,70,229,0.3)]"
+                  >
+                    Run in Agent Browser &rarr;
+                  </button>
                 </div>
               )}
             </div>

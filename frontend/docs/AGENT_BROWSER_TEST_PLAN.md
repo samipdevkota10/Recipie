@@ -12,7 +12,7 @@ Use this document to verify **Gemini → bash → `agent-browser`** end-to-end f
 | 1.2 | From repo: `cd frontend && npm install`. | Completes with no errors. |
 | 1.3 | Install browser binaries for agent-browser: `cd frontend && npx agent-browser install`. | Command finishes; Chrome/Chromium for Testing available. |
 | 1.4 | Create **`frontend/.env.local`** with at least one of: `GEMINI_API_KEY=...` or `GOOGLE_GENERATIVE_AI_API_KEY=...`. | File exists; key is valid (Google AI Studio). |
-| 1.5 | Optional: `AGENT_BROWSER_HEADED=true` in `.env.local` for a visible window (API also defaults headed for spawned scripts). | Browser window appears during runs. |
+| 1.5 | Default is **headless** (no external Chrome window). Optional: `AGENT_BROWSER_HEADED=true` in `.env.local` to debug with a real browser window. | In-app URL preview still updates from logs when headless. |
 | 1.6 | Start dev server: `cd frontend && npm run dev`. | Terminal shows **Ready** and a **localhost** URL (note port if not 3000). |
 
 ---
@@ -60,7 +60,7 @@ Generate a bash script that uses set -e, opens https://example.com, waits 2000 m
 | Step | Instruction | Pass criteria |
 |------|-------------|----------------|
 | 1 | Paste prompt → **Run Agent**. | Script includes `set -e`, `open`, `wait`, `close`. |
-| 2 | Observe system browser (if headed). | example.com loads briefly; browser closes. |
+| 2 | Observe in-app preview and/or external window only if `AGENT_BROWSER_HEADED=true`. | example.com URL appears in preview when headless; script still runs. |
 | 3 | Check log tail. | **Exited with code 0** (typical). |
 
 ---

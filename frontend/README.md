@@ -46,8 +46,9 @@ The UI calls Gemini in **two phases** when generating bash for `agent-browser`: 
 | `GEMINI_API_KEY` | Required (or `GOOGLE_GENERATIVE_AI_API_KEY` / `GOOGLE_API_KEY`). |
 | `AGENT_PLAN_MODEL` | Model for planning (default `gemini-2.5-flash`). |
 | `AGENT_SCRIPT_MODEL` | Model for bash generation (default `gemini-2.5-flash`). |
+| `AGENT_VISION_MODEL` | Model for screenshot verification + CSV extraction (default `gemini-2.5-flash`; `gemini-2.0-flash` is deprecated for new API keys). |
 | `AGENT_SKIP_PLAN` | Set to `true` or `1` to skip the planner and use legacy one-shot prompts. |
 | `AGENT_KEEP_NETWORKIDLE` | Set to `true` or `1` to **stop** rewriting `wait --load networkidle` → fixed ms (default: scripts are sanitized to avoid SPA hangs). |
-| `AGENT_BROWSER_HEADED` | `true` by default; set `0` / `false` for headless. |
+| `AGENT_BROWSER_HEADED` | Default **headless** (no extra Chrome window). Set to `true` or `1` only to open a real **external** browser for debugging. Follow runs in the **in-app preview** (URLs from agent output). |
 
 Manual test ideas: [docs/AGENT_BROWSER_TEST_PLAN.md](./docs/AGENT_BROWSER_TEST_PLAN.md).

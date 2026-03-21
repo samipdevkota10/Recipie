@@ -4,6 +4,7 @@ import {
   type GenerativeModel,
   type ObjectSchema,
 } from "@google/generative-ai";
+import type { VideoAnalysisResult } from "@/lib/types/video-analysis";
 
 /** Structured plan: phase 1 of the agent (reasoning before bash). */
 export interface AgentTaskPlan {
@@ -115,13 +116,16 @@ You write ONLY a bash script for the \`agent-browser\` CLI. Rules:
    NEVER: find role <role> --name "Label" click  (breaks CLI: Unknown subaction: --name)
 3. Inputs ARE supported: find placeholder "..." fill "...", find label "..." fill "...", etc.
 4. Prefer **direct listing/search URLs** over homepage + search box when possible.
-5. **Waits:** Prefer \`agent-browser wait <ms>\` (e.g. 2500–4000) after \`open\` and after clicks.
-   **Avoid \`agent-browser wait --load networkidle\`** on analytics-heavy or SPA sites (ads, tracking, websockets) — it often **never completes** and hangs the script. Use fixed ms waits + scroll + snapshot instead.
-6. **Tabs / wrong view:** If a page has tabs like "Events" vs "Venues", **click the tab that shows the data you need** (e.g. \`find text "Events" click\` or \`find role tab click --name "Events"\`) **before** scrolling and snapshotting listings.
-7. **Portable shell (macOS default):** Do **NOT** use \`grep -oP\` (GNU-only; fails on macOS BSD grep). Use \`grep -E\`, \`sed -E\`, \`awk\`, or \`perl\` for extraction. Use \`sed -E\` not \`sed -r\`.
-8. For CSV: snapshot -i > file.txt then grep/sed/awk/echo to build a .csv; state in # comments that rows are approximate.
-9. Before close: wait at least 3000ms so a human can see the final page.
-10. No markdown fences. No prose outside the script.
+5. **Keyboard:** Use \`agent-browser press Enter\`, \`agent-browser press Tab\`, etc. **Never** \`agent-browser press_key\` (invalid). After \`fill\` on a search field, use \`agent-browser press Enter\` to submit.
+6. **Waits:** Prefer \`agent-browser wait <ms>\` (2500–4000) after \`open\` and clicks. **Avoid \`wait --load networkidle\`** on heavy SPAs (often hangs).
+7. **Google / search:** Prefer \`agent-browser open "https://www.google.com/search?q=terms+here"\` over fragile combobox roles. Or \`find placeholder "Search" fill "..."\` then \`agent-browser press Enter\`.
+8. **Tabs / wrong view:** If a page has tabs like "Events" vs "Venues", click the data tab first (\`find text "Events" click\` or \`find role tab click --name "Events"\`) before scrolling and snapshotting.
+9. **Portable shell (macOS):** No \`grep -oP\`; use \`grep -E\`, \`sed -E\`, \`awk\`. No \`sed -r\`.
+10. For CSV: snapshot -i > file.txt then grep/sed/awk/echo; comment that rows are approximate.
+11. Before close: wait at least 3000ms.
+12. **Headless / in-app preview:** No \`agent-browser --headed\`; use plain \`agent-browser\`.
+13. **Web app host (optional):** Before \`close\`, \`agent-browser screenshot agent_page.png\` and \`agent-browser snapshot -i > raw_snapshot.txt\` in the dev-server cwd when possible.
+14. No markdown fences. No prose outside the script.
 `.trim();
 
 function getModelName(envKey: string, fallback: string) {
@@ -159,7 +163,7 @@ Instructions:
 - steps_outline must be actionable shell steps (open, fixed-ms wait, scroll, find/click tabs if needed, snapshot, portable grep/sed/awk, close).
 - If the user wants a CSV, set data_extraction to snapshot_then_shell_csv and outline grep/sed steps using **portable** tools (no grep -oP; sed -E not sed -r).
 - In failure_risks, mention SPA/networkidle hangs and wrong-tab UI when relevant.
-- cli_reminders: find role ... click --name ordering; **avoid wait --load networkidle** on busy sites; use fixed agent-browser wait ms; click correct listing tab before snapshot; macOS-compatible parsing.
+- cli_reminders: find role ... click --name ordering; **avoid wait --load networkidle**; use \`agent-browser press Enter\` not press_key; prefer direct Google search URLs; macOS-compatible parsing; no \`--headed\`.
 
 Respond ONLY as JSON matching the schema.`;
 
@@ -190,7 +194,7 @@ Your goal is to translate the user's natural language request into a sequence of
 
 The available commands for \`agent-browser\` are:
 - \`agent-browser close\`
-- \`agent-browser open <url>\`
+- \`agent-browser open <url>\` — **never** \`agent-browser --headed open\` (host defaults to headless; user uses in-app preview).
 - \`agent-browser wait <ms>\` — **prefer this** after navigation. Avoid \`wait --load networkidle\` on heavy SPAs (often hangs forever).
 - **Find + action (order matters):**
   - \`agent-browser find text "Sign In" click\`
@@ -199,6 +203,7 @@ The available commands for \`agent-browser\` are:
   - \`agent-browser find label "Email" fill "a@b.com"\` | \`find placeholder "City" fill "LAX"\` | \`find label "To" fill "LAX"\`
 - **Typing / inputs ARE supported** — use \`find ... fill\`, \`find ... type\`, or \`agent-browser fill <selector> "text"\` / \`keyboard type "text"\` after focus. **Never** claim the tool cannot fill inputs.
 - \`agent-browser scroll down <pixels>\` (or up/left/right)
+- \`agent-browser press Enter\` (or Tab, Escape) — **not** \`press_key\`
 - \`agent-browser snapshot -i > <file>\`
 - \`agent-browser click @eN\` (ref from a prior \`snapshot\`)
 
@@ -283,6 +288,22 @@ export function sanitizeAgentBrowserScript(script: string): string {
   // BSD/macOS sed uses -E; GNU sed accepts both — normalize for portability
   s = s.replace(/\bsed\s+-r\b/g, "sed -E");
 
+  // Strip --headed unless user explicitly runs external window (matches route.ts AGENT_BROWSER_HEADED)
+  const headedExternal =
+    process.env.AGENT_BROWSER_HEADED === "1" ||
+    process.env.AGENT_BROWSER_HEADED === "true";
+  if (!headedExternal) {
+    s = s.replace(/\bagent-browser\s+--headed\s+/g, "agent-browser ");
+    s = s.replace(/\bnpx\s+agent-browser\s+--headed\s+/g, "npx agent-browser ");
+  }
+
+  // LLM hallucination: press_key is not a valid subcommand
+  s = s.replace(
+    /\bagent-browser\s+press_key\s+"([^"]+)"/gi,
+    "agent-browser press $1",
+  );
+  s = s.replace(/\bagent-browser\s+press_key\s+(\S+)/gi, "agent-browser press $1");
+
   if (!s.startsWith("#!/")) {
     s = `#!/bin/bash\n${s}`;
   }
@@ -303,5 +324,76 @@ export async function generateScriptSingleShot(
       maxOutputTokens: 8192,
     },
   });
+  return sanitizeAgentBrowserScript(stripCodeFences(result.response.text()));
+}
+
+/**
+ * Generate an agent-browser bash script from video-analyzed actions + user instructions.
+ * The video JSON provides concrete observed steps; Gemini translates them to CLI commands
+ * and incorporates any user modifications (different city, more suppliers, etc.).
+ */
+export async function generateScriptFromVideoActions(
+  scriptModel: GenerativeModel,
+  videoJson: VideoAnalysisResult,
+  userInstructions: string,
+): Promise<string> {
+  const actionsBlock = videoJson.actions
+    .map(
+      (a) =>
+        `  ${a.seq}. [${a.type}] ${a.description}` +
+        (a.target ? ` | target: "${a.target}"` : "") +
+        (a.value ? ` | value: "${a.value}"` : "") +
+        (a.url_at_action ? ` | url: ${a.url_at_action}` : ""),
+    )
+    .join("\n");
+
+  const text = `You are generating an agent-browser bash script that replays actions observed from a screen recording.
+
+VIDEO ANALYSIS (what the user demonstrated):
+- Task: ${videoJson.task_title}
+- Intent: ${videoJson.user_intent}
+- Starting URL: ${videoJson.starting_url ?? "unknown"}
+- Observed actions:
+${actionsBlock}
+
+USER INSTRUCTIONS (how to adapt, extend, or modify the workflow):
+${userInstructions || "Replay the observed actions faithfully — no modifications."}
+
+ACTION → AGENT-BROWSER MAPPING:
+- navigate (with URL in value)  → agent-browser open "<url>"
+- click                         → agent-browser find text "<target>" click
+- type (fill a field)           → agent-browser find placeholder "<target>" fill "<value>"
+                                  or: agent-browser find label "<target>" fill "<value>"
+- press_key                     → agent-browser press <value>  (Enter, Tab, Escape, etc.)
+- scroll                        → agent-browser scroll down 500
+- select (dropdown)             → agent-browser find role combobox click --name "<target>" then agent-browser find text "<value>" click
+- wait                          → agent-browser wait 2000
+- switch_tab                    → (skip — agent-browser manages one active page)
+- hover                         → agent-browser find text "<target>" hover
+- close                         → agent-browser close
+
+${SCRIPT_AUTHOR_RULES}
+
+CRITICAL RULES FOR THIS MODE:
+1. Follow the observed action sequence closely — it reflects real user behavior.
+2. If the user instructions ask to modify (e.g. different city, more items), adapt the relevant steps but keep the overall flow structure.
+3. Merge consecutive click-into-field + type actions into a single find/fill command.
+4. Add agent-browser wait 2500-3500 after every open and after clicks that trigger navigation.
+5. End the script with: agent-browser screenshot agent_page.png && agent-browser snapshot -i > raw_snapshot.txt
+6. Before close, wait at least 3000ms.
+
+FEW-SHOT (style reference):
+${FEW_SHOT_SCRIPT}
+
+Output ONLY the final bash script.`;
+
+  const result = await scriptModel.generateContent({
+    contents: [{ role: "user", parts: [{ text }] }],
+    generationConfig: {
+      temperature: 0.15,
+      maxOutputTokens: 8192,
+    },
+  });
+
   return sanitizeAgentBrowserScript(stripCodeFences(result.response.text()));
 }
