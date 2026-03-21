@@ -959,6 +959,9 @@ function getRecentAgentActivities(activityLog: string, limit = 4): string[] {
     .split("\n")
     .map((entry) => entry.trim())
     .filter(Boolean)
+    .map((entry) =>
+      entry.length > 120 ? `${entry.slice(0, 120).trimEnd()}...` : entry,
+    )
     .slice(-limit);
 }
 
