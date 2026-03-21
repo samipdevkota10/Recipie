@@ -5,6 +5,7 @@ import { VIDEO_TO_DETAILED_DESCRIPTION_PROMPT } from "@/lib/gemini/prompts/video
 
 export const maxDuration = 60;
 export const runtime = "nodejs";
+const SUPPORTED_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm"]);
 
 export async function POST(request: Request) {
   const requestId = createRequestId();
@@ -46,23 +47,23 @@ export async function POST(request: Request) {
       );
     }
 
-    const videoMimeType = video.type || "video/mp4";
+    const videoMimeType = getSupportedVideoMimeType(video);
     console.info(
       `[video-describer:${requestId}] File metadata`,
       JSON.stringify({
         name: video.name,
-        mimeType: videoMimeType,
+        mimeType: videoMimeType || video.type || "unknown",
         sizeBytes: video.size,
         instructionLength: prompt.length,
       }),
     );
 
-    if (videoMimeType !== "video/mp4") {
+    if (!videoMimeType) {
       console.warn(
-        `[video-describer:${requestId}] Unsupported mime type: ${videoMimeType}`,
+        `[video-describer:${requestId}] Unsupported mime type: ${video.type || "unknown"}`,
       );
       return Response.json(
-        { error: "Only video/mp4 is supported on this page right now." },
+        { error: "Only video/mp4 and video/webm are supported on this page." },
         {
           status: 400,
           headers: { "x-video-describer-request-id": requestId },
@@ -143,4 +144,24 @@ function createRequestId(): string {
   return `${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
+}
+
+function getSupportedVideoMimeType(video: File): string | null {
+  const mimeType = video.type.split(";")[0]?.trim().toLowerCase();
+
+  if (mimeType && SUPPORTED_VIDEO_MIME_TYPES.has(mimeType)) {
+    return mimeType;
+  }
+
+  const normalizedName = video.name.toLowerCase();
+
+  if (normalizedName.endsWith(".mp4")) {
+    return "video/mp4";
+  }
+
+  if (normalizedName.endsWith(".webm")) {
+    return "video/webm";
+  }
+
+  return null;
 }
