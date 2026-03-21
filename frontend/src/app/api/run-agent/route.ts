@@ -33,7 +33,9 @@ export async function POST(req: Request) {
 
     const geminiApiKey = apiKey;
     const genAI = new GoogleGenerativeAI(geminiApiKey);
-    const visionModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const visionModelName =
+      process.env.AGENT_VISION_MODEL?.trim() || "gemini-2.5-flash";
+    const visionModel = genAI.getGenerativeModel({ model: visionModelName });
 
     const encoder = new TextEncoder();
 
@@ -46,10 +48,10 @@ export async function POST(req: Request) {
 
         const bin = path.join(process.cwd(), "node_modules", ".bin");
         const headed =
-          process.env.AGENT_BROWSER_HEADED === "0" ||
-          process.env.AGENT_BROWSER_HEADED === "false"
-            ? "false"
-            : (process.env.AGENT_BROWSER_HEADED ?? "true");
+          process.env.AGENT_BROWSER_HEADED === "1" ||
+          process.env.AGENT_BROWSER_HEADED === "true"
+            ? "true"
+            : "false";
 
         const spawnEnv = {
           ...process.env,
@@ -141,10 +143,6 @@ export async function POST(req: Request) {
             /* ignore */
           }
 
-          sendData(
-            "system",
-            "AI is verifying the current page content via screenshot..."
-          );
           const screenshotPath = path.join(process.cwd(), "agent_page.png");
           const snapshotPath = path.join(process.cwd(), "raw_snapshot.txt");
 
@@ -154,36 +152,74 @@ export async function POST(req: Request) {
           try {
             const imageBuffer = await fs.readFile(screenshotPath);
             screenshotBase64 = imageBuffer.toString("base64");
+          } catch {
+            /* optional file */
+          }
+          try {
             snapshotText = await fs.readFile(snapshotPath, "utf8");
           } catch {
+            /* optional file */
+          }
+
+          const hasUsableScreenshot =
+            screenshotBase64.trim().length >= 200;
+
+          if (!hasUsableScreenshot || !snapshotText.trim()) {
             sendData(
               "stderr",
-              "Warning: Could not read screenshot or snapshot for verification."
+              "Note: Missing agent_page.png and/or raw_snapshot.txt in the app cwd. " +
+                "Verification/CSV will use text-only mode. " +
+                "Tip: end generated scripts with: agent-browser screenshot agent_page.png && agent-browser snapshot -i > raw_snapshot.txt"
             );
           }
 
           if (attempts < 1) {
-            const verifyPrompt = [
-              {
-                inlineData: {
-                  data: screenshotBase64,
-                  mimeType: "image/png",
-                },
-              },
-              {
-                text: `Analyze this browser screenshot and text snapshot.
-User Goal: "${prompt}"
-Current Snapshot Content Snippet: ${snapshotText.substring(0, 5000)}
+            sendData(
+              "system",
+              hasUsableScreenshot
+                ? "AI is verifying the current page (screenshot + snapshot text)..."
+                : "AI is verifying using snapshot text only (no screenshot)..."
+            );
 
-Is the agent currently on a page that directly fulfills the user's request (e.g., a list of tech events) or just a generic landing page?
-Output exactly "CORRECT" if we are on the right track.
-Otherwise, output "RETRY: <reason>" describing why this is the wrong page and what kind of link or search term to use instead.`,
-              },
-            ];
+            const verifyText = `User Goal: "${prompt}"
 
-            const verificationResult =
-              await visionModel.generateContent(verifyPrompt);
-            const verificationText = verificationResult.response.text().trim();
+Current snapshot text (may be empty if the script did not write raw_snapshot.txt):
+${snapshotText.substring(0, 8000)}
+
+Check two things:
+1. Are we actually on the RESULTS PAGE for the correct query/location?
+2. Is the page showing meaningful content toward the user's goal, or is it a generic landing page / wrong city / captcha?
+
+Output exactly "CORRECT" if there is meaningful on-page content toward the goal.
+Otherwise output "RETRY: <reason>" with a concrete fix (e.g. use direct URL, different find command).`;
+
+            const verifyPrompt = hasUsableScreenshot
+              ? [
+                  {
+                    inlineData: {
+                      data: screenshotBase64,
+                      mimeType: "image/png",
+                    },
+                  },
+                  {
+                    text: `Analyze this browser screenshot together with the snapshot text.\n\n${verifyText}`,
+                  },
+                ]
+              : [{ text: verifyText }];
+
+            let verificationText = "CORRECT";
+            try {
+              const verificationResult =
+                await visionModel.generateContent(verifyPrompt);
+              verificationText = verificationResult.response.text().trim();
+            } catch (verErr: unknown) {
+              const vm =
+                verErr instanceof Error ? verErr.message : String(verErr);
+              sendData(
+                "stderr",
+                `Verification step skipped after API error: ${vm}`
+              );
+            }
 
             if (verificationText.startsWith("RETRY") && attempts === 0) {
               sendData(
@@ -203,7 +239,7 @@ Otherwise, output "RETRY: <reason>" describing why this is the wrong page and wh
             }
             sendData(
               "system",
-              "Verification passed! Proceeding to data extraction."
+              "Verification finished. Proceeding to data extraction."
             );
           } else {
             sendData(
@@ -214,29 +250,43 @@ Otherwise, output "RETRY: <reason>" describing why this is the wrong page and wh
 
           sendData(
             "system",
-            "Using Gemini AI to parse the final snapshot/screenshot into a beautiful CSV..."
+            "Using Gemini to build CSV from available snapshot/screenshot..."
           );
-          const csvPrompt = [
-            {
-              inlineData: {
-                data: screenshotBase64,
-                mimeType: "image/png",
-              },
-            },
-            {
-              text: `Parse this page into a highly detailed, clean CSV format.
-Extract: Event Name, Full Address/Location, Date & Time, Ticket Link, Description.
-Targeting: ${prompt}
 
-Snapshot Text:
-${snapshotText.substring(0, 10000)}
+          const csvBody = `Parse into a useful CSV for the user's goal.
+Determine the 5-7 most relevant columns for this research goal (e.g. if events: Name, Date, Location; if products: Name, Price, Rating).
 
-Output ONLY the raw CSV data. No markdown headers.`,
-            },
-          ];
+User request:
+${prompt}
 
-          const csvResult = await visionModel.generateContent(csvPrompt);
-          let csvContent = csvResult.response.text();
+Snapshot text (may be partial or empty):
+${snapshotText.substring(0, 12000)}
+
+Output ONLY raw CSV data (headers + rows). No markdown fences.`;
+
+          const csvPrompt = hasUsableScreenshot
+            ? [
+                {
+                  inlineData: {
+                    data: screenshotBase64,
+                    mimeType: "image/png",
+                  },
+                },
+                { text: csvBody },
+              ]
+            : [{ text: csvBody }];
+
+          let csvContent = "";
+          try {
+            const csvResult = await visionModel.generateContent(csvPrompt);
+            csvContent = csvResult.response.text();
+          } catch (csvErr: unknown) {
+            const cm = csvErr instanceof Error ? csvErr.message : String(csvErr);
+            sendData("error", `CSV extraction failed: ${cm}`);
+            sendData("done", "Process complete with errors.");
+            return;
+          }
+
           csvContent = csvContent
             .replace(/^```csv\n/i, "")
             .replace(/^```\n/i, "")
@@ -246,7 +296,7 @@ Output ONLY the raw CSV data. No markdown headers.`,
           await fs.writeFile(csvPath, csvContent);
           sendData(
             "system",
-            "Successfully saved beautiful CSV to extracted_results.csv!"
+            "Successfully saved CSV to extracted_results.csv!"
           );
 
           exec(`open "${csvPath}"`);

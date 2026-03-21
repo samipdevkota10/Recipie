@@ -16,6 +16,7 @@ export default function Home() {
   
   // Fake Browser State
   const [browserUrl, setBrowserUrl] = useState("about:blank");
+  const [browserStatus, setBrowserStatus] = useState("Idle");
   const [scrollPosition, setScrollPosition] = useState(0);
   const [cursorPos, setCursorPos] = useState({ x: 50, y: 50 }); // percentage based on visible area
   const [isClicking, setIsClicking] = useState(false);
@@ -53,16 +54,16 @@ export default function Home() {
     if (lastLog.type === "stdout" || lastLog.type === "system") {
       const cleanText = stripAnsi(lastLog.text);
       
-      // agent-browser --headed open <url>
-      // Also look for naked URLs that the agent might output during navigation
+      // agent-browser --headed open <url> or [browser] Navigate to <url>
       const openMatch = cleanText.match(/open\s+(https?:\/\/[^\s]+)/i) || 
+                        cleanText.match(/Navigate to (https?:\/\/[^\s]+)/i) ||
                         cleanText.match(/(https?:\/\/[^\s\u001b]+)/i);
 
       if (openMatch) {
          let url = openMatch[1];
-         // Clean up any trailing characters like ] or ) that might be artifacts
          url = url.replace(/[\]\)\>]+$/, "");
          setBrowserUrl(url);
+         setBrowserStatus(`Navigating to ${url.split('/')[2]}...`);
          setScrollPosition(0);
          setCursorPos({ x: 50, y: 50 });
          setHighlightText("");
@@ -72,13 +73,14 @@ export default function Home() {
       const scrollMatch = cleanText.match(/scroll\s+(\d+)/i);
       if (scrollMatch) {
         setScrollPosition(prev => prev + parseInt(scrollMatch[1], 10));
+        setBrowserStatus("Scrolling page...");
       }
 
       // agent-browser find text "<text>" click
       const clickMatch = cleanText.match(/find text "([^"]+)" click/i);
       if (clickMatch) {
         setHighlightText(clickMatch[1]);
-        // Move cursor to a realistic location inside the VISIBLE area
+        setBrowserStatus(`Clicking "${clickMatch[1]}"...`);
         setCursorPos({
           x: 20 + Math.random() * 60, 
           y: 20 + Math.random() * 60
@@ -87,11 +89,42 @@ export default function Home() {
         setIsClicking(true);
         setTimeout(() => setIsClicking(false), 300);
       }
+
+      // agent-browser type "<text>" at "<label>"
+      const typeMatch = cleanText.match(/type\s+"([^"]+)"\s+at\s+"([^"]+)"/i);
+      if (typeMatch) {
+        setHighlightText(`Typing: ${typeMatch[1]}`);
+        setBrowserStatus(`Entering text at ${typeMatch[2]}...`);
+        setCursorPos({
+          x: 30 + Math.random() * 40,
+          y: 30 + Math.random() * 40
+        });
+      }
+
+      // agent-browser wait <ms>
+      const waitMatch = cleanText.match(/wait\s+(\d+)/i);
+      if (waitMatch) {
+        setBrowserStatus(`Waiting ${waitMatch[1]}ms for page to load...`);
+      }
+
+      // Heartbeat steps from echo "STEP: ..."
+      const stepMatch = cleanText.match(/STEP:\s+(.+)/i);
+      if (stepMatch) {
+        setBrowserStatus(stepMatch[1]);
+      }
+
+      // AI verification steps
+      if (cleanText.includes("AI is verifying")) {
+        setBrowserStatus("AI Vision: Verifying location and content...");
+      }
     }
     
-    if (lastLog.type === "done" || lastLog.type === "error") {
-      // Reset fake cursor to middle when done
+    if (lastLog.type === "done") {
+      setBrowserStatus("Task Complete!");
       setCursorPos({ x: 50, y: 50 });
+    }
+    if (lastLog.type === "error") {
+      setBrowserStatus("Error in navigation");
     }
   }, [logs]);
 
@@ -254,12 +287,26 @@ export default function Home() {
               ref={containerRef}
               className="flex-1 relative overflow-hidden bg-white text-gray-900 z-10 w-full"
             >
+              {/* Status Overlay */}
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[80] pointer-events-none">
+                <div className={`px-4 py-2 rounded-full border shadow-2xl transition-all duration-500 flex items-center gap-3 ${
+                  browserStatus === "Task Complete!" ? "bg-emerald-900/90 border-emerald-500/50 text-emerald-100" :
+                  browserStatus.includes("Error") ? "bg-rose-900/90 border-rose-500/50 text-rose-100" :
+                  "bg-gray-900/90 border-gray-600/50 text-white"
+                }`}>
+                  {isRunning && (
+                    <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                  )}
+                  <span className="text-sm font-medium tracking-wide">{browserStatus}</span>
+                </div>
+              </div>
+
               {/* Scaled Desktop Screen */}
               <div 
-                className="absolute top-0 left-0 bg-white origin-top-left flex flex-col pointer-events-auto"
+                className="absolute top-0 left-0 bg-white origin-top-left flex flex-col pointer-events-auto shadow-2xl"
                 style={{ 
                   width: `${DESKTOP_WIDTH}px`, 
-                  height: `3000px`, // extremely tall virtual height for the automated scrolling to look real
+                  height: `2000px`, 
                   transform: `scale(${scale}) translateY(-${scrollPosition * 0.5}px)`,
                   transition: 'transform 700ms cubic-bezier(0.22, 1, 0.36, 1)'
                 }}
@@ -267,19 +314,14 @@ export default function Home() {
                   {browserUrl !== "about:blank" && !browserUrl.includes("undefined") ? (
                     <iframe 
                       src={browserUrl}
-                      className="w-full h-full border-0 select-none shadow-inner"
+                      className="w-full h-full border-0 select-none"
                       sandbox="allow-same-origin allow-scripts allow-forms"
                       title="Embedded Agent Browse View"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-start pt-[100px] justify-center">
-                      <div className="text-gray-400 text-[18px] flex items-center gap-3">
-                        <svg className="animate-spin h-5 w-5 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Waiting for page navigation...
-                      </div>
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50 text-gray-400 gap-4">
+                      <div className="w-12 h-12 border-4 border-gray-200 border-t-blue-500 rounded-full animate-spin" />
+                      <p className="text-lg font-medium">Waiting for page navigation...</p>
                     </div>
                   )}
               </div>
