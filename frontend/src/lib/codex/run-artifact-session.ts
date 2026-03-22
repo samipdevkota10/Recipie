@@ -3,8 +3,8 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 
-const DEFAULT_CODEX_MODEL = "gpt-5.4";
-const DEFAULT_CODEX_REASONING_EFFORT = "high";
+const DEFAULT_CODEX_MODEL = "gpt-5.4-mini";
+const DEFAULT_CODEX_REASONING_EFFORT = "medium";
 const OUTPUT_SCHEMA_FILENAME = "codex-output-schema.json";
 const OUTPUT_MESSAGE_FILENAME = "codex-output.json";
 const CODEX_RUN_TIMEOUT_MS = 10 * 60 * 1000;
